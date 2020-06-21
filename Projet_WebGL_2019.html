@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+		<title>Projet WebGL 2019 - Université de Limoges</title>
+		
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+	</head>
+
+	<body>
+		<div id="info">
+			Projet WebGL 2019 - Université de Limoges
+
+		</div>
+			<div style="position:absolute ;right : 0;z-index: 1;background-color: #AAAAAA55; padding: 5px;  ">
+					<label>Speed :</label><input type="number" value="3" id="speed" >
+					<br>
+					<label>First Person Vue :</label><input type="checkbox"  id="FirstPersonView">
+					<br>
+					<label>Lock Camera on Train :</label><input type="checkbox"  id="focustrain">
+					<br>
+					<label>Rotating Light (Sun) :</label><input type="checkbox"  id="rotatingSun">
+					<br>
+					<label>Train Light ON :</label><input type="checkbox"  id="TrainLightOn">
+			</div>
+<script type="x-shader/x-vertex" id="vertexShader2">
+void main() 
+{
+
+	vec4 modelViewPosition = modelViewMatrix * vec4(position, 1.0);
+	gl_Position = projectionMatrix * modelViewPosition;
+}
+</script>
+<script type="x-shader/x-fragment" id="fragmentShader2">
+#define SHOW_TILING
+
+#define TAU 6.28318530718
+#define MAX_ITER 5
+
+
+uniform vec2 resolution;
+uniform float time;
+
+
+void main( void )
+{
+    // uv should be the 0-1 uv of texture...
+	vec2 uv = gl_FragCoord.xy / resolution.xy ;
+    vec4 imageLoad(gimage "/var/www/html/Projet_WebGL_2019/data/textures/Terrain/canyon.jpg", uv);
+
+	gl_FragColor = vec4(imageLoad);
+
+}
+</script>
+
+<script type="x-shader/x-vertex" id="vertexShader">
+void main() 
+{
+
+	vec4 modelViewPosition = modelViewMatrix * vec4(position, 1.0);
+	gl_Position = projectionMatrix * modelViewPosition;
+}
+</script>
+<script type="x-shader/x-fragment" id="fragmentShader">
+#define SHOW_TILING
+
+#define TAU 6.28318530718
+#define MAX_ITER 5
+
+
+uniform vec2 resolution;
+uniform float time;
+
+
+void main( void )
+{
+		float time2 = time * .5+23.0;
+    // uv should be the 0-1 uv of texture...
+	vec2 uv = gl_FragCoord.xy / resolution.xy + time/10.0;
+    
+#ifdef SHOW_TILING
+	vec2 p = mod(uv*TAU*2.0, TAU)-250.0;
+#else
+    vec2 p = mod(uv*TAU, TAU)-250.0;
+#endif
+	vec2 i = vec2(p);
+	float c = 1.0;
+	float inten = .005;
+
+	for (int n = 0; n < MAX_ITER; n++) 
+	{
+		float t = time2 * (1.0 - (3.5 / float(n+1)));
+		i = p + vec2(cos(t - i.x) + sin(t + i.y), sin(t - i.y) + cos(t + i.x));
+		c += 1.0/length(vec2(p.x / (sin(i.x+t)/inten),p.y / (cos(i.y+t)/inten)));
+	}
+	c /= float(MAX_ITER);
+	c = 1.17-pow(c, 1.4);
+	vec3 colour = vec3(pow(abs(c), 8.0));
+    colour = clamp(colour + vec3(0.0, 0.35, 0.5), 0.0, 1.0);
+    
+
+	#ifdef SHOW_TILING
+	// Flash tile borders...
+	vec2 pixel = 2.0 / resolution.xy;
+	uv *= 2.0;
+
+	float f = floor(mod(time*.5, 2.0)); 	// Flash value.
+	vec2 first = step(pixel, uv) * f;		   	// Rule out first screen pixels and flash.
+	uv  = step(fract(uv), pixel);				// Add one line of pixels per tile.
+	colour = mix(colour,colour , (uv.x + uv.y) * first.x * first.y); // Yellow line
+	
+	#endif
+	gl_FragColor = vec4(colour * vec3(0.3,0.5,0.3 ), 1.0);
+
+}
+</script>
+
+
+<script >
+var  terrain,locomotive,testrail,i,counterRails;
+var rotationDone = 0 ;
+var rotationDone2 = 0 ;
+var rotationDone3 = 0 ;
+var rotationDone4 = 0 ;
+var rotationDone5 = 0 ;
+var rotationDone6 = 0 ;
+var totaladded=0;
+var executedOnce = false;
+var executedOnce2 = false;
+var executedOnce3 = false;
+var executedOnce4 = false;
+var addedX=0;
+var addedY=0;
+ var speed=1;
+ var light;
+ var TrainLight;
+ var counterSun = 1000 ;
+ var cloneLoco;
+</script>
+		<script type="module">
+ var myGroup = new THREE.Group();
+
+				import * as THREE from './threejs/three.module.js';
+				import { OBJLoader } from './threejs/OBJLoader.js';
+				import { TrackballControls } from './threejs/TrackballControls.js';
+	
+				var container;
+
+				var camera, scene, renderer, controls;
+				var i=0 ;
+				var windowHalfX = window.innerWidth / 2;
+				var windowHalfY = window.innerHeight / 2;
+	
+				var object;
+				var i =0;
+				var rails = [] ;
+				init();
+				animate();	
+
+				function init() {
+	
+					container = document.createElement( 'div' );
+					document.body.appendChild( container );
+	
+					// scene
+					scene = new THREE.Scene();
+
+					// creation renderer	
+					renderer = new THREE.WebGLRenderer();
+					renderer.setPixelRatio( window.devicePixelRatio );
+					renderer.setSize( window.innerWidth, window.innerHeight );
+					renderer.setClearColor (0xAAAAAA, 1);
+					container.appendChild( renderer.domElement );
+
+					// camera
+					camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 1, 4000 );
+					camera.position.z = 500;
+					camera.position.y = -300;
+					camera.position.x = 0;
+					camera.lookAt( 0, 0, 0 );	
+					scene.add( camera );
+	
+					// controle sur la camera, type trackball
+					controls = new TrackballControls( camera, renderer.domElement );
+
+					// lights
+					light = new THREE.PointLight( 0xffffff, 1 );
+					light.position.set( 0, 0, 1000 );
+					scene.add( light );
+
+
+					TrainLight = new THREE.SpotLight( 0xFFFFff, 1.0 );
+					TrainLight.position.set( 0, 0, 1000 );
+					TrainLight.angle = Math.PI / 5 ;
+					TrainLight.decay = 2;
+					TrainLight.distance = 2000;
+					scene.add( TrainLight );
+
+
+						var loader = new THREE.TextureLoader();
+
+
+
+						var texture1 = loader.load('data/textures/Terrain/diffuse.png');
+						var textureDeTerrain = new THREE.MeshLambertMaterial({map: texture1 });
+
+						var texture2 = loader.load('data/textures/Terrain/hight.png');
+						var textureDeTerrainHight = new THREE.MeshLambertMaterial({map: texture2 });
+
+						var texture2 = loader.load('data/textures/Rail/rusty.jpg');
+						var textureDeRail = new THREE.MeshLambertMaterial({map: texture2 });
+
+
+						var loader3 = new THREE.TextureLoader();
+						var texture3 = loader3.load('data/textures/Rail/rayHSurface_Color.jpg');
+						var textureDeRail2 = new THREE.MeshLambertMaterial({map: texture3 });
+
+					
+						var texture4 = loader.load('data/textures/Rail/rust2.png');
+						var textureDeTrain = new THREE.MeshLambertMaterial({map: texture4 });	
+	
+
+			var uniforms = THREE.UniformsUtils.merge( [
+
+    THREE.UniformsLib[ "ambient" ],
+    THREE.UniformsLib[ "lights" ]
+
+] );
+					uniforms = {
+						time: { value: 1.0 },
+						resolution: new THREE.Uniform(new THREE.Vector2( 300, 200 )),
+						lights: true
+					};
+
+
+
+
+				    var waterMaterial = new THREE.ShaderMaterial({
+				        uniforms: uniforms,
+				        vertexShader: document.getElementById('vertexShader').textContent,
+				        fragmentShader: document.getElementById('fragmentShader').textContent
+				    });
+
+				    var a = new THREE.Vector3( -1000, 1000 , 10 );
+				    var b = new THREE.Vector3( -500, 1000 , 10 );
+				    var c = new THREE.Vector3( -1000, 500 , 10 );
+
+					var flatSurface = new THREE.PlaneGeometry( 450,2000 );
+					var blue = new THREE.MeshBasicMaterial( {color: 0x0000ff} );
+					var water = new THREE.Mesh( flatSurface, waterMaterial );
+					//water.rotateZ(Math.PI/4);
+					water.position.set(-775,0,10);
+					//scene.add( water );
+
+					
+					var river = new THREE.Shape();
+
+					river.moveTo( 700, 1000 );
+					river.lineTo(  -1000, 1000 );
+					river.lineTo(  -1000, -500 );
+					river.lineTo(  -850, -500 );
+					river.lineTo(  -850, -170 );
+					river.lineTo(  -570,470 );
+					river.lineTo( -300,670 );
+					//river.lineTo(  -570,470 );
+					
+
+					var extrudeSettings = { amount: 5, bevelEnabled: true, bevelSegments: 2, steps: 2, bevelSize: 1, bevelThickness: 1 };
+
+					var geometry = new THREE.ExtrudeGeometry( river, extrudeSettings );
+
+					var mesh = new THREE.Mesh( geometry, waterMaterial );
+					scene.add(mesh);
+
+
+					function loadModel() {	
+						terrain.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeTerrain;
+							child.material.bumpMap = textureDeTerrainHight ;
+							child.material.bumpScale = 0 ;
+	
+						} );
+						
+						scene.add( terrain );	
+					}
+
+					// LoadingManager
+					var manager = new THREE.LoadingManager( loadModel );
+					manager.onProgress = function ( item, loaded, total ) {
+						console.log( "Load:", item, "(", loaded, "/", total, ")" );
+					};
+
+					// OBJLoader	
+					var objLoader = new OBJLoader( manager );
+					objLoader.onError = function() {
+						console.log( "Error OBJLoader" );
+					}
+
+					objLoader.load( 'data/models/TerrainLod4.obj', function ( obj ) {
+						terrain = obj;	
+					});
+
+			//--------------------  creation rails BEGIN---------------------	
+
+
+
+// ---------------------- 1 ---------------
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 16; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.scale.set(0.1,0.1,0.1);
+	rail1.translateX(-100.0);
+	rail1.translateZ(95.0+(i*30));
+	rail1.translateY(10.0);
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+
+
+
+
+
+
+						objLoader.load( 'data/models/rail2.obj', function ( obj ) {
+							
+							obj.rotateX(90.0*2.0*Math.PI/360.0);
+							obj.rotateY(90.0*2.0*Math.PI/360.0);
+							obj.scale.set(0.1,0.1,0.1);
+							obj.translateX(-50.0);
+							obj.translateZ(-54.0);	
+							obj.translateY(10.0);	
+							obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeRail;
+
+							} );					
+							scene.add( obj );	
+						});
+
+
+	// ---------------------- 2 ---------------
+					
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+	for ( var i = 0; i < 21; i ++ ) {
+		var rail1 = obj.clone();
+		rail1.rotateX(90.0*2.0*Math.PI/360.0);
+		rail1.rotateY(Math.PI/2);
+		rail1.scale.set(0.1,0.1,0.1);
+		rail1.translateX(-50.0);
+		rail1.translateZ(-55+(i*30));
+		rail1.translateY(10.0);
+		rail1.traverse( function ( child ) {
+				//if ( child.isMesh )
+				 child.material = textureDeRail;
+		} );
+		scene.add( rail1 );
+	}
+});
+
+
+					objLoader.load( 'data/models/rail2.obj', function ( obj ) {
+							
+							obj.rotateX(90.0*2.0*Math.PI/360.0);
+							obj.rotateY(Math.PI+Math.PI/2);
+							obj.scale.set(0.1,0.1,0.1);
+							obj.translateX(50.0);
+							obj.translateZ(-545.0);	
+							obj.translateY(10.0);	
+							obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeRail;
+
+							} );					
+							scene.add( obj );	
+						});
+
+
+
+// ---------------------- 3 ---------------
+
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 16; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.rotateY(-0.17);
+	rail1.scale.set(0.1,0.1,0.1);
+	rail1.translateX(587);
+
+	rail1.translateZ(-95-(i*30));
+	rail1.translateY(10.0);
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+					objLoader.load( 'data/models/rail2.obj', function ( obj ) {
+							
+							obj.position.set(665,435,10);
+							obj.rotateX(90.0*2.0*Math.PI/360.0);
+							obj.rotateY(-Math.PI/8);
+							obj.scale.set(0.1,0.1,0.1);
+							obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeRail;
+
+							} );					
+							scene.add( obj );	
+						});
+
+// ----------------------- 4 --------------
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+	for ( var i = 0; i < 24; i ++ ) {
+		var rail1 = obj.clone();
+		rail1.rotateX(90.0*2.0*Math.PI/360.0);
+		rail1.rotateY(3*Math.PI/2 - Math.PI/9);
+		rail1.scale.set(0.1,0.1,0.1);
+		rail1.position.set(645,493,10);
+		rail1.translateZ((i*30));
+		rail1.traverse( function ( child ) {
+				//if ( child.isMesh )
+				 child.material = textureDeRail;
+			} );
+		scene.add( rail1 );
+	}
+});
+
+
+					objLoader.load( 'data/models/rail2.obj', function ( obj ) {
+							
+							obj.position.set(5,725,10);
+							obj.rotateX(90.0*2.0*Math.PI/360.0);
+							obj.rotateY(Math.PI/2-Math.PI/7);
+							obj.scale.set(0.1,0.1,0.1);
+							obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeRail;
+
+							} );					
+							scene.add( obj );	
+						});
+	
+	// ------------------- 5 ---------------
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 20; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.position.set(-59,708,10);
+
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.rotateY(-Math.PI/5);
+	rail1.scale.set(0.1,0.1,0.1);
+	rail1.translateZ((i*30));
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+// -------------------- BEGIN Straight rail turn 
+
+
+// ---------------------- 6 ---------------
+
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 3; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.position.set(-408,222,10);
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.scale.set(0.1,0.1,0.1);
+	rail1.rotateY(-Math.PI/5 + Math.PI/15);
+	rail1.translateZ((i*30));
+	//alert(rail1.rotation._y);
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+
+// ---------------------- 7 ---------------
+
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 3; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.position.set(-441, 140,10);
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.scale.set(0.1,0.1,0.1);
+	rail1.rotateY(-Math.PI/5 + 2*Math.PI/15);
+	rail1.translateZ((i*30));
+		//alert(rail1.rotation._y);
+
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+
+// -------------------- END Straight rail turn 
+
+
+// ---------------------- 8 ---------------
+
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 21; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.position.set(-455,56,10);
+
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.scale.set(0.1,0.1,0.1);
+	
+	rail1.translateZ((i*30));
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+
+					objLoader.load( 'data/models/rail2.obj', function ( obj ) {
+							
+							obj.position.set(-454,-542,10);
+							obj.rotateX(90.0*2.0*Math.PI/360.0);
+							obj.rotateY(Math.PI);
+							obj.scale.set(0.1,0.1,0.1);
+							obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeRail;
+
+							} );					
+							scene.add( obj );	
+						});
+
+// ---------------------- 9 ---------------
+
+objLoader.load( 'data/models/rail1.obj',function ( obj ) {
+		for ( var i = 0; i < 10; i ++ ) {
+	var rail1 = obj.clone();
+	rail1.position.set(-415,-588,10);
+
+	rail1.rotateX(90.0*2.0*Math.PI/360.0);
+	rail1.rotateY(Math.PI/2);
+	rail1.scale.set(0.1,0.1,0.1);
+	
+	rail1.translateZ((i*30));
+	rail1.traverse( function ( child ) {
+	  		//if ( child.isMesh )
+	  		 child.material = textureDeRail;
+	  	} );
+	  	scene.add( rail1 );
+	  }
+	  });
+
+					objLoader.load( 'data/models/rail2.obj', function ( obj ) {
+							
+							obj.position.set(-146,-588,10);
+							obj.rotateX(90.0*2.0*Math.PI/360.0);
+							obj.rotateY(-Math.PI/2);
+							obj.scale.set(0.1,0.1,0.1);
+							obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeRail;
+
+							} );					
+							scene.add( obj );	
+						});
+	  		//--------------------  creation rails END ---------------------	
+
+					objLoader.load( 'data/models/Locomotive.obj', function ( obj ) {
+						
+						obj.rotateX(90*2.0*Math.PI/360.0);
+						obj.rotateY(Math.PI);
+						obj.scale.set(0.3,0.3,0.3);
+						obj.position.set(-115,-430,10);
+						obj.traverse( function ( child ) {	
+							//if ( child.isMesh ) 
+							child.material = textureDeTrain;
+
+							} );
+
+						locomotive = obj;
+
+						scene.add( obj );	
+					});	
+
+					// gestion redimensionnement fenetre
+					window.addEventListener( 'resize', onWindowResize, false );
+				}
+	
+				// gestion redimensionnement fenetre
+				function onWindowResize() {
+	
+					windowHalfX = window.innerWidth / 2;
+					windowHalfY = window.innerHeight / 2;
+	
+					camera.aspect = window.innerWidth / window.innerHeight;
+					camera.updateProjectionMatrix();
+	
+					renderer.setSize( window.innerWidth, window.innerHeight );
+				}
+		
+				function animate(t) {	
+						speed = parseInt(document.getElementById("speed").value);
+						t=t/3000;
+						counterSun -= 5;
+						var newX = 1000*Math.sin(t) ; 
+						var newZ = 1000*Math.cos(t) ; 
+
+					
+						if ( document.getElementById("rotatingSun").checked == true)
+							{
+								light.position.set( newX, 0, newZ );
+							}
+							else {
+								light.position.set( 0, 0, 1000 );
+							}
+
+						if ( document.getElementById("TrainLightOn").checked == true)
+							{
+								TrainLight.distance=2000;
+							}
+							else {
+								TrainLight.distance=1;
+							}
+
+					if (counterSun < -2000 ) {
+							counterSun = 2000
+						} 
+					if ( locomotive ) {
+
+						//alert(light.position.z);
+
+
+			// ------------------------- 1----------
+						if (i < 14*30){
+						i+=speed;
+						locomotive.position.set(locomotive.position.x,
+												locomotive.position.y+speed,
+												locomotive.position.z);
+						}
+// ------------------------- (1)----------
+						else if (rotationDone < Math.PI/2)
+						{
+							var angle = -(Math.PI/2)/30 ;
+							locomotive.rotateY(angle);
+							rotationDone+= -angle
+							locomotive.translateZ(3.5);
+							locomotive.translateX(-4.6);
+						}
+
+					// ------------------------- 1----------
+						else if (i <34*30)
+						{
+							i+=speed;
+							locomotive.position.set(locomotive.position.x+speed,
+													locomotive.position.y,
+													locomotive.position.z);
+						}
+// ------------------------- (2)----------
+
+						else if (rotationDone2 < (79.65/180)*Math.PI)
+						{
+							var angle = ((79.65/180)*Math.PI)/30 ;
+							locomotive.rotateY(angle);
+							rotationDone2+= angle
+							locomotive.translateZ(2);
+							locomotive.translateX(4.7);
+						}
+
+						else if (i <49*30)
+						{
+							i+=speed;
+							locomotive.translateZ(speed);
+
+						}
+// ------------------------- (3)----------
+
+						else if (rotationDone3 < ((100.35/180)*Math.PI - Math.PI/9) )
+						{
+							var angle = ((100.35/180)*Math.PI- Math.PI/9)/30 ;
+							locomotive.rotateY(angle);
+							rotationDone3+= angle;
+							locomotive.translateZ((43)/30);
+							locomotive.translateX((135)/30);
+
+						}
+						else if (i <72*30)
+						{
+							i+=speed;
+							locomotive.translateZ(speed);
+						}
+// ------------------------- (4)----------
+
+						else if (locomotive.rotation._y < -0.6283185307179585 )
+						{
+							var angle = (2) /30 ;
+							locomotive.rotateY(angle);
+							locomotive.translateZ(2);
+							locomotive.translateX(6);
+						}
+	// ------------------------- 5----------
+				
+						else if (i <92*30)
+						{
+						if(executedOnce3 == false){
+							locomotive.rotation.y = -0.6283185307179585;
+
+							executedOnce3 = true;
+
+							}
+							i+=speed;
+							locomotive.translateZ(speed);
+						}
+
+	// ------------------------- (e6)----------
+						else if (i <95*30)
+						{
+							if(executedOnce == false){
+							locomotive.rotation.y= -0.4188790204786391;
+							locomotive.translateX(25);
+
+							executedOnce = true;
+
+							}							
+							i+=speed;
+							//alert("deuxieme");
+							locomotive.translateZ(speed);
+						}
+	// ------------------------- (e7)----------
+
+						else if (i <98*30)
+						{
+							if(executedOnce2 == false){
+							locomotive.rotation.y=-0.20943951023931953;
+							locomotive.translateX(25);
+							
+							executedOnce2 = true;
+							}	
+							i+=speed;
+							//alert("deuxieme");
+							locomotive.translateZ(speed);
+						}
+		// ------------------------- 8----------
+				
+						else if (i <118*30)
+						{
+							locomotive.rotation.y=0;
+							if(executedOnce4 == false){
+								locomotive.translateX(20);
+								executedOnce4 = true;
+							}
+							i+=speed;
+							locomotive.translateZ(speed);
+
+						}
+
+				// ------------------------- (8)----------
+
+						else if (rotationDone4 < Math.PI/2 )
+						{
+							var angle = (Math.PI/2) /30 ;
+							locomotive.rotateY(angle);
+							rotationDone4+= angle ;
+							locomotive.translateZ(2.2);
+							locomotive.translateX(5.7);
+						}
+				// ------------------------- 9----------
+				
+						else if (i <126*30)
+						{
+							i+=speed;
+							locomotive.translateZ(speed);
+
+						}
+
+				// ------------------------- (9)----------
+
+						else if (rotationDone5 < (Math.PI/2) )
+						{
+							var angle = (Math.PI/2) /30 ;
+							locomotive.rotateY(angle);
+							rotationDone5+= angle ;
+							locomotive.translateZ(1.5);
+							locomotive.translateX(4.9);
+						}
+						else{
+							locomotive.position.set(-115,-430,10);
+							rotationDone=0;
+							rotationDone2=0;
+							rotationDone3=0;
+							rotationDone4=0;
+							rotationDone5=0;
+							rotationDone6=0;
+							executedOnce=false;
+							executedOnce2=false;
+							executedOnce3=false;
+							executedOnce4=false;
+							locomotive.rotation.y = 0;
+							i=0;
+						}
+
+					
+					TrainLight.target = locomotive;
+					if(document.getElementById("focustrain").checked == true){
+					controls.target.set(locomotive.position.x,locomotive.position.y,locomotive.position.z+20);
+	
+					}
+					else {
+						controls.target.set(0,0,0);
+					}
+					
+
+					locomotive.translateZ(-100);
+					//camera.rotation.set(Math.PI /2 ,0,0) ;
+										camera.rotateX(Math.PI/6);	
+										camera.up = new THREE.Vector3(0, 0, 1);
+					TrainLight.position.set(locomotive.position.x,locomotive.position.y,13);
+					if(document.getElementById("FirstPersonView").checked == true){
+					camera.position.set(locomotive.position.x, locomotive.position.y, locomotive.position.z+20);
+	
+					}
+					locomotive.translateZ(100);
+
+					//console.log(camera.rotation);
+				
+					
+
+						} 
+					controls.update();
+					render();
+					requestAnimationFrame( animate );	
+				}
+				
+
+				function render() {
+					renderer.render( scene, camera );
+				}
+
+
+			</script>
+</body></html>
